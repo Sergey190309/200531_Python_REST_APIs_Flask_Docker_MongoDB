@@ -8,5 +8,9 @@ services:
     volumes:
       - ./web:/usr/src/app
       # - ./web:.
-  # db:
-    # build: ./db
+    links:
+      - db
+  db:
+    build: ./db
+    volumes:
+      - ./db/data:/data/db
