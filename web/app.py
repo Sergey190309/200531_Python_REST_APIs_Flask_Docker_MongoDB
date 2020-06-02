@@ -1,8 +1,32 @@
 from flask import Flask, jsonify, request
 from flask_restful import Api, Resource
 
+from pymongo import MongoClient
+
 app = Flask(__name__)
 api = Api(app)
+
+# Create client to communication
+# db is the same as service in docker-compose.yml
+# 27017 - default port
+client = MongoClient('mongodb://db:27017')
+# Create new data base
+db = client.aNewDB
+# db's name then collection's name
+UserNum = db['UserNum']
+
+# Add document in collection.
+UserNum.insert_one({
+    'num_of_users': 0
+})
+
+
+class Visit(Resource):
+    def get(self):
+        prev_num = UserNum.find({})[0]['num_of_users']
+        new_num = prev_num + 1
+        UserNum.update({}, {"$set": {"num_of_users": new_num}})
+        return str("Hello user No " + str(new_num))
 
 
 def checkPostedData(postedData, functionName):
@@ -122,6 +146,7 @@ api.add_resource(Add, "/add")
 api.add_resource(Sub, "/sub")
 api.add_resource(Mul, "/mul")
 api.add_resource(Div, "/div")
+api.add_resource(Visit, '/hello')
 
 
 @app.route('/')
