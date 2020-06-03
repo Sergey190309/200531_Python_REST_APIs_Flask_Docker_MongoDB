@@ -1,152 +1,145 @@
 from flask import Flask, jsonify, request
 from flask_restful import Api, Resource
+import bcrypt
 
 from pymongo import MongoClient
 
 app = Flask(__name__)
 api = Api(app)
 
-# Create client to communication
-# db is the same as service in docker-compose.yml
-# 27017 - default port
 client = MongoClient('mongodb://db:27017')
-# Create new data base
-db = client.aNewDB
-# db's name then collection's name
-UserNum = db['UserNum']
-
-# Add document in collection.
-UserNum.insert_one({
-    'num_of_users': 0
-})
+db = client.InfoDatabase
+users = db['Users']
 
 
-class Visit(Resource):
-    def get(self):
-        prev_num = UserNum.find({})[0]['num_of_users']
-        new_num = prev_num + 1
-        UserNum.update_one({}, {"$set": {"num_of_users": new_num}})
-        return str("Hello user No " + str(new_num))
+class Register(Resource):
+    def post(self):
+        postedData = request.get_json()
+        username = postedData["username"]
+        password = postedData["password"]
+
+        hashed_pw = bcrypt.hashpw(password.encode('utf8'), bcrypt.gensalt())
+        users.insert({
+            "Username": username,
+            "Password": hashed_pw,
+            "Sentence": "",
+            "Tokens": 6
+        })
+
+        retJson = {
+            "status": 200,
+            "msg": "You successfully signed up for the API"
+        }
+
+        return jsonify(retJson)
 
 
-def checkPostedData(postedData, functionName):
-    if "x" not in postedData or "y" not in postedData:
-        return 301
-    elif type(postedData["x"]) != int or type(postedData["y"]) != int:
-        return 302
+def verifyPw(username, password):
+    hashed_pw = users.find({
+        "Username": username
+    })[0]["Password"]
 
-    if functionName == 'div' and postedData["y"] == 0:
-        return 303
+    if bcrypt.hashpw(password.encode('utf8'), hashed_pw) == hashed_pw:
+        return True
     else:
-        return 200
+        return False
 
 
-def processData(postedData, functionName):
-    # Verify posted data validity.
-    status_code = checkPostedData(postedData, functionName)
-    if status_code == 200:
-        x = postedData["x"]
-        y = postedData["y"]
-        # insure they are integers.
-        x = int(x)
-        y = int(y)
-        # Make result
-        if functionName == 'add':
-            ret = x + y
-        elif functionName == 'sub':
-            ret = x - y
-        elif functionName == 'mul':
-            ret = x * y
-        elif functionName == 'div':
-            ret = x / y
-    elif status_code == 301:
-        ret = 'Error, argument is missing'
-    elif status_code == 302:
-        ret = 'Error, arguments are not ints'
-    elif status_code == 303:
-        ret = 'Error, division by 0, are you idiot?'
-
-    # generate return value
-    retJSON = {
-        "Message": ret,
-        "Status code": status_code
-    }
-    return retJSON
+def countTokens(username):
+    tokens = users.find({
+        "Username": username
+    })[0]["Tokens"]
+    return tokens
 
 
-class Add(Resource):
+class Store(Resource):
     def post(self):
-        # Step 1 - get posted data.
+        # Step 1 get the posted data
         postedData = request.get_json()
-        retJSON = processData(postedData, 'add')
-        return jsonify(retJSON)
 
-    def get(self):
-        return "It was get."
+        # Step 2 is to read the data
+        username = postedData["username"]
+        password = postedData["password"]
+        sentence = postedData["sentence"]
 
-    def put(self):
-        pass
+        # Step 3 verify the username pw match
+        correct_pw = verifyPw(username, password)
 
-    def delele(self):
-        pass
+        if not correct_pw:
+            retJson = {
+                "status": 302
+            }
+            return jsonify(retJson)
+        # Step 4 Verify user has enough tokens
+        num_tokens = countTokens(username)
+        if num_tokens <= 0:
+            retJson = {
+                "status": 301
+            }
+            return jsonify(retJson)
+
+        # Step 5 store the sentence, take one token away  and return 200OK
+        users.update({
+            "Username": username
+        }, {
+            "$set": {
+                "Sentence": sentence,
+                "Tokens": num_tokens-1
+                }
+        })
+
+        retJson = {
+            "status": 200,
+            "msg": "Sentence saved successfully"
+        }
+        return jsonify(retJson)
 
 
-class Sub(Resource):
+class Get(Resource):
     def post(self):
-        # Step 1 - get posted data.
         postedData = request.get_json()
-        retJSON = processData(postedData, 'sub')
-        return jsonify(retJSON)
 
-    def get(self):
-        return "It was get."
+        username = postedData["username"]
+        password = postedData["password"]
 
-    def put(self):
-        pass
+        # Step 3 verify the username pw match
+        correct_pw = verifyPw(username, password)
+        if not correct_pw:
+            retJson = {
+                "status": 302
+            }
+            return jsonify(retJson)
 
-    def delele(self):
-        pass
+        num_tokens = countTokens(username)
+        if num_tokens <= 0:
+            retJson = {
+                "status": 301
+            }
+            return jsonify(retJson)
 
+        # MAKE THE USER PAY!
+        users.update({
+            "Username": username
+        }, {
+            "$set": {
+                "Tokens": num_tokens-1
+                }
+        })
 
-class Mul(Resource):
-    def post(self):
-        # Step 1 - get posted data.
-        postedData = request.get_json()
-        retJSON = processData(postedData, 'mul')
-        return jsonify(retJSON)
+        sentence = users.find({
+            "Username": username
+        })[0]["Sentence"]
+        retJson = {
+            "status": 200,
+            "sentence": str(sentence)
+        }
 
-    def get(self):
-        return "It was get."
-
-    def put(self):
-        pass
-
-    def delele(self):
-        pass
-
-
-class Div(Resource):
-    def post(self):
-        # Step 1 - get posted data.
-        postedData = request.get_json()
-        retJSON = processData(postedData, 'div')
-        return jsonify(retJSON)
-
-    def get(self):
-        return "It was get."
-
-    def put(self):
-        pass
-
-    def delele(self):
-        pass
+        return jsonify(retJson)
 
 
-api.add_resource(Add, "/add")
-api.add_resource(Sub, "/sub")
-api.add_resource(Mul, "/mul")
-api.add_resource(Div, "/div")
-api.add_resource(Visit, '/hello')
+api.add_resource(Register, '/register')
+api.add_resource(Store, '/store')
+api.add_resource(Get, '/get')
 
 
 @app.route('/')
@@ -156,4 +149,3 @@ def hello_world():
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000, debug=True)
-    # app.run(host="127.0.0.1", port=80)
